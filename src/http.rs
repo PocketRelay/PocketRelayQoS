@@ -1,12 +1,17 @@
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::{
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    sync::Arc,
+};
 
-use axum::{extract::Query, routing::get, Router, Server};
+use axum::{extract::Query, routing::get, Extension, Router, Server};
 use axum_xml_up::Xml;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use tokio::signal;
 
-pub async fn start_server() {
+use crate::service::QService;
+
+pub async fn start_server(service: Arc<QService>) {
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
         .init();
@@ -14,13 +19,15 @@ pub async fn start_server() {
     // Create the server socket address while the port is still available
     let addr: SocketAddr = (Ipv4Addr::UNSPECIFIED, 25700).into();
 
-    let router = Router::new().nest(
-        "/qos",
-        Router::new()
-            .route("/qos", get(qos))
-            .route("/firewall", get(firewall))
-            .route("/firetype", get(firetype)),
-    );
+    let router = Router::new()
+        .nest(
+            "/qos",
+            Router::new()
+                .route("/qos", get(qos))
+                .route("/firewall", get(firewall))
+                .route("/firetype", get(firetype)),
+        )
+        .layer(Extension(service));
 
     info!("Starting server on {}", addr);
 
@@ -61,14 +68,29 @@ pub struct QQuery {
     pub qtyp: u32,
 }
 
-pub async fn qos(Query(query): Query<QQuery>) -> Xml<QResponse> {
+pub async fn qos(
+    Query(query): Query<QQuery>,
+    Extension(service): Extension<Arc<QService>>,
+) -> Xml<QResponse> {
+    let (num_probes, probe_size) = if query.qtyp == 1 { (0, 0) } else { (10, 1200) };
+
+    let (request_id, request_secret) = service
+        .create_request_data(
+            query.qtyp,
+            num_probes,
+            probe_size,
+            query.port,
+            query.version,
+        )
+        .await;
+
     Xml(QResponse {
-        num_probes: 0,
-        qos_port: 17499,
-        probe_size: 0,
+        num_probes,
+        qos_port: 17500,
+        probe_size,
         qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
-        request_id: 1,
-        request_secret: 0,
+        request_id,
+        request_secret,
     })
 }
 
@@ -105,11 +127,13 @@ pub struct QFirewallQuery {
 
 pub async fn firewall(Query(query): Query<QFirewallQuery>) -> Xml<QFirewall> {
     Xml(QFirewall {
-        ips: QFirewallIps { ip: vec![1] },
+        ips: QFirewallIps {
+            ip: vec![u32::from_be_bytes([127, 0, 0, 1])],
+        },
         num_interfaces: 1,
-        ports: QFirewallPorts { ports: vec![1] },
-        request_id: 1,
-        request_secret: 0,
+        ports: QFirewallPorts { ports: vec![17501] },
+        request_id: 654,
+        request_secret: 1115,
     })
 }
 
