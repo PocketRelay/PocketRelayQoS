@@ -7,9 +7,10 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "0.6", features = ["headers", "tracing"]}
+axum-xml-up = "0.1.0"
 env_logger = "0.10"
 log = "0.4"
+serde = { version = "1", features = ["derive"]}
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tower-http = "0.4"
-xml = "0.8"
