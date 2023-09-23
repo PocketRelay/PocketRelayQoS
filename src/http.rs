@@ -1,9 +1,9 @@
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use axum::{routing::get, Router, Server};
+use axum::{extract::Query, routing::get, Router, Server};
 use axum_xml_up::Xml;
-use log::{error, info};
-use serde::Serialize;
+use log::{debug, error, info};
+use serde::{Deserialize, Serialize};
 use tokio::signal;
 
 pub async fn start_server() {
@@ -52,7 +52,16 @@ pub struct QResponse {
     pub request_secret: u32,
 }
 
-pub async fn qos() -> Xml<QResponse> {
+#[derive(Debug, Deserialize)]
+pub struct QQuery {
+    #[serde(rename = "prpt")]
+    pub port: u16,
+    #[serde(rename = "vers")]
+    pub version: u32,
+    pub qtyp: u32,
+}
+
+pub async fn qos(Query(query): Query<QQuery>) -> Xml<QResponse> {
     Xml(QResponse {
         num_probes: 0,
         qos_port: 17499,
@@ -66,27 +75,35 @@ pub async fn qos() -> Xml<QResponse> {
 #[derive(Debug, Serialize)]
 #[serde(rename = "firewall")]
 pub struct QFirewall {
-    ips: QFirewallIps,
+    pub ips: QFirewallIps,
     #[serde(rename = "numinterfaces")]
-    num_interfaces: u32,
-    ports: QFirewallPorts,
+    pub num_interfaces: u32,
+    pub ports: QFirewallPorts,
     #[serde(rename = "requestid")]
-    request_id: u32,
+    pub request_id: u32,
     #[serde(rename = "reqsecret")]
-    request_secret: u32,
+    pub request_secret: u32,
 }
 
 #[derive(Debug, Serialize)]
 pub struct QFirewallIps {
-    ip: Vec<u32>,
+    pub ip: Vec<u32>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct QFirewallPorts {
-    ports: Vec<u16>,
+    pub ports: Vec<u16>,
 }
 
-pub async fn firewall() -> Xml<QFirewall> {
+#[derive(Debug, Deserialize)]
+pub struct QFirewallQuery {
+    #[serde(rename = "vers")]
+    pub version: u32,
+    #[serde(rename = "nint")]
+    pub number_interfaces: u32,
+}
+
+pub async fn firewall(Query(query): Query<QFirewallQuery>) -> Xml<QFirewall> {
     Xml(QFirewall {
         ips: QFirewallIps { ip: vec![1] },
         num_interfaces: 1,
@@ -100,9 +117,28 @@ pub async fn firewall() -> Xml<QFirewall> {
 #[serde(rename = "firetype")]
 pub struct QFireType {
     #[serde(rename = "firetype")]
-    fire_type: u32,
+    pub fire_type: u32,
 }
 
-pub async fn firetype() -> Xml<QFireType> {
+#[derive(Debug, Deserialize)]
+pub struct QFireTypeQuery {
+    #[serde(rename = "vers")]
+    pub version: u32,
+    #[serde(rename = "rqid")]
+    pub request_id: u32,
+    #[serde(rename = "rqsc")]
+    pub request_secret: u32,
+    #[serde(rename = "inip")]
+    pub internal_ip: i32,
+    #[serde(rename = "inpt")]
+    pub internal_port: u16,
+}
+
+pub async fn firetype(Query(query): Query<QFireTypeQuery>) -> Xml<QFireType> {
+    let internal_ip = Ipv4Addr::from(query.internal_ip as u32);
+    let internal = SocketAddrV4::new(internal_ip, query.internal_port);
+
+    debug!("Fire type internal: {}", internal);
+
     Xml(QFireType { fire_type: 2 })
 }
