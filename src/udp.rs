@@ -6,11 +6,11 @@ use std::{
 use log::{debug, error};
 use tokio::net::UdpSocket;
 
-use crate::service::QService;
+use crate::{constants::QOS_PORT, service::QService};
 
 pub async fn start_server(service: Arc<QService>) {
     // Socket for handling connections
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 17500))
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, QOS_PORT))
         .await
         .unwrap();
 
@@ -37,8 +37,13 @@ pub async fn start_server(service: Arc<QService>) {
             .await
             .expect("Missing request data for request");
 
+        debug!(
+            "Query: ID: {} SEC: {} NUM: {} TY: {} ADDR: {}",
+            request_id, request_secret, probe_number, request.q_type, addr
+        );
+
         if request.q_type == 1 {
-            debug!("Query type 1 responding with address");
+            debug!("Query type 1 responding with address to: {}", addr);
             let IpAddr::V4(ip) = addr.ip() else {continue;};
             let port = addr.port();
             let ip_bytes = ip.octets();
@@ -48,17 +53,31 @@ pub async fn start_server(service: Arc<QService>) {
             output.extend_from_slice(&ip_bytes);
             output.extend_from_slice(&port_bytes);
             output.extend_from_slice(&[0, 0, 0, 0]);
-            _ = socket.send_to(&output, addr).await;
+
+            debug!("Message length: {:?}", output.len());
+
+            if socket.send_to(&output, addr).await.is_err() {
+                // TODO: Handle server unable to reach
+                error!("Unable to return message to client: {}", addr);
+            }
         } else if request.q_type == 2 {
-            debug!("Query type 1 responding with port and padding");
+            debug!("Query type 2 responding with port and padding to: {}", addr);
             let padding = &buffer[20..length];
             let mut output = Vec::new();
-            output.extend_from_slice(header);
-            output.extend_from_slice(&[0x00, 0x5b, 0x8d, 0x80]);
+            output.extend_from_slice(&buffer[0..16]);
+            output.extend_from_slice(&[0x0a, 0x00, 0x00, 0x00]);
+            output.extend_from_slice(&[0x00, 0x5b, 0x8d, 0x80]); // UBPS
             output.extend_from_slice(&request.client_port.to_be_bytes());
             output.extend_from_slice(padding);
 
-            _ = socket.send_to(&output, addr).await;
+            output.truncate(1200);
+
+            debug!("Message: {:?}", output);
+
+            if socket.send_to(&output, addr).await.is_err() {
+                // TODO: Handle server unable to reach
+                error!("Unable to return message to client: {}", addr);
+            }
         }
     }
 }
@@ -76,9 +95,17 @@ fn u16_from_slice(slice: &[u8]) -> u16 {
 
 #[test]
 fn a() {
+    println!(
+        "{}",
+        String::from_utf8_lossy(&1701727834u32.to_be_bytes()).to_string()
+    );
+
     println!("{}", u32::from_be_bytes([0x00, 0xcc, 0x46, 0x01,]));
     println!("{}", u16::from_be_bytes([0x00, 0xe7,]));
-    println!("{}", Ipv4Addr::from(15168031));
+    println!(
+        "{}",
+        Ipv4Addr::from(u32::from_be_bytes([0x00, 0xcc, 0x46, 0x01,]))
+    );
 }
 
 fn parse() {
