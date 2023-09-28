@@ -75,26 +75,31 @@ pub async fn qos(
     Query(query): Query<QQuery>,
     Extension(service): Extension<Arc<QService>>,
 ) -> Xml<QResponse> {
-    let (num_probes, probe_size) = if query.qtyp == 1 { (0, 0) } else { (10, 1200) };
+    if query.qtyp == 1 {
+        Xml(QResponse {
+            num_probes: 0,
+            qos_port: QOS_PORT,
+            probe_size: 0,
+            qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
+            request_id: 1,
+            request_secret: 0,
+        })
+    } else {
+        let (request_id, request_secret) = service
+            .create_request_data(query.qtyp, query.port, query.version)
+            .await;
 
-    let (request_id, request_secret) = service
-        .create_request_data(
-            query.qtyp,
-            num_probes,
-            probe_size,
-            query.port,
-            query.version,
-        )
-        .await;
+        debug!("QResponse: {} {}", request_id, request_secret);
 
-    Xml(QResponse {
-        num_probes,
-        qos_port: QOS_PORT,
-        probe_size,
-        qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
-        request_id,
-        request_secret,
-    })
+        Xml(QResponse {
+            num_probes: 10,
+            qos_port: QOS_PORT,
+            probe_size: 1200,
+            qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
+            request_id,
+            request_secret,
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]

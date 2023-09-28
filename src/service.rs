@@ -12,8 +12,7 @@ pub struct QService {
     pub m2: RwLock<HashMap<(RequestId, RequestSecret), QFirewallData>>,
 }
 
-static NEXT_ID: AtomicU32 = AtomicU32::new(0);
-static NEXT_SECRET: AtomicU32 = AtomicU32::new(0);
+static NEXT_ID: AtomicU32 = AtomicU32::new(2);
 
 impl QService {
     pub async fn get_request_data(
@@ -28,8 +27,7 @@ impl QService {
     pub async fn create_request_data(
         &self,
         q_type: u32,
-        num_probes: u32,
-        probe_size: u32,
+
         client_port: u16,
         version: u32,
     ) -> (RequestId, RequestSecret) {
@@ -47,8 +45,7 @@ impl QService {
 
         let data = QRequestData {
             q_type,
-            num_probes,
-            probe_size,
+
             client_port,
             version,
         };
@@ -102,8 +99,6 @@ impl QService {
 #[derive(Clone, Debug)]
 pub struct QRequestData {
     pub q_type: u32,
-    pub num_probes: u32,
-    pub probe_size: u32,
     pub client_port: u16,
     pub version: u32,
 }
