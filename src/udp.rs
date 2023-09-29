@@ -92,8 +92,3 @@ fn u32_from_slice(slice: &[u8]) -> u32 {
     a.copy_from_slice(slice);
     u32::from_be_bytes(a)
 }
-fn u16_from_slice(slice: &[u8]) -> u16 {
-    let mut a = [0u8; 2];
-    a.copy_from_slice(slice);
-    u16::from_be_bytes(a)
-}
