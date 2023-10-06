@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
-use http::firewall;
 use service::QService;
+use std::sync::Arc;
 
 mod constants;
 mod firewall;
