@@ -118,9 +118,9 @@ pub async fn start_server(service: Arc<QService>) {
 
             debug!("SEND");
 
-            if socket.send_to(&out, addr).await.is_err() {
+            if let Err(err) = socket.send_to(&out, addr).await {
                 // TODO: Handle server unable to reach
-                error!("Unable to return message to client: {}", addr);
+                error!("Unable to return message to client {}: {}", addr, err);
             }
         } else {
             let request = service
@@ -148,9 +148,9 @@ pub async fn start_server(service: Arc<QService>) {
                 // debug!("Message: {:?}", output);
                 debug!("SEND");
 
-                if socket.send_to(&out, addr).await.is_err() {
+                if let Err(err) = socket.send_to(&out, addr).await {
                     // TODO: Handle server unable to reach
-                    error!("Unable to return message to client: {}", addr);
+                    error!("Unable to return message to client {}: {}", addr, err);
                 }
             }
         }
