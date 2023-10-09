@@ -182,7 +182,13 @@ async fn handle(
     debug!("AT: {}", time.as_millis());
 
     let mut out: BytesMut = BytesMut::new();
-    let public_ip = public_address().await.unwrap();
+
+    let mut public_ip = *addr.ip();
+    if public_ip.is_loopback() || public_ip.is_private() {
+        if let Some(ip) = public_address().await {
+            public_ip = ip;
+        }
+    }
 
     if header.request_id == 1 && header.request_secret == 0 {
         let request = QosRequestV1::from_buffer(&mut buffer);
@@ -283,14 +289,6 @@ async fn public_address() -> Option<Ipv4Addr> {
         if let Ok(parsed) = ip.parse() {
             value = Some(parsed);
             break;
-        }
-    }
-
-    // If we couldn't connect to any IP services its likely
-    // we don't have internet lets try using our local address
-    if value.is_none() {
-        if let Ok(IpAddr::V4(addr)) = local_ip_address::local_ip() {
-            value = Some(addr)
         }
     }
 
