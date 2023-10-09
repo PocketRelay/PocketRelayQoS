@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
 
@@ -10,14 +10,11 @@ use serde::{Deserialize, Serialize};
 use tokio::signal;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 
-use crate::{
-    constants::{FIREWALL_PORT, HTTP_PORT, QOS_PORT},
-    service::QService,
-};
+use crate::{config::Config, service::QService};
 
-pub async fn start_server(service: Arc<QService>) {
+pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     // Create the server socket address while the port is still available
-    let addr: SocketAddr = (Ipv4Addr::UNSPECIFIED, HTTP_PORT).into();
+    let addr: SocketAddr = (Ipv4Addr::UNSPECIFIED, config.http_port).into();
 
     let router = Router::new()
         .nest(
@@ -28,6 +25,7 @@ pub async fn start_server(service: Arc<QService>) {
                 .route("/firetype", get(firetype)),
         )
         .layer(Extension(service))
+        .layer(Extension(config))
         .layer(
             TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::new().include_headers(true)),
         );
@@ -74,11 +72,12 @@ pub struct QQuery {
 pub async fn qos(
     Query(query): Query<QQuery>,
     Extension(service): Extension<Arc<QService>>,
+    Extension(config): Extension<Arc<Config>>,
 ) -> Xml<QResponse> {
     if query.qtyp == 1 {
         Xml(QResponse {
             num_probes: 0,
-            qos_port: QOS_PORT,
+            qos_port: config.udp_port_1,
             probe_size: 0,
             qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
             request_id: 1,
@@ -93,7 +92,7 @@ pub async fn qos(
 
         Xml(QResponse {
             num_probes: 5,
-            qos_port: QOS_PORT,
+            qos_port: config.udp_port_1,
             probe_size: 1200,
             qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
             request_id,
@@ -136,6 +135,7 @@ pub struct QFirewallQuery {
 pub async fn firewall(
     Query(query): Query<QFirewallQuery>,
     Extension(service): Extension<Arc<QService>>,
+    Extension(config): Extension<Arc<Config>>,
 ) -> Xml<QFirewall> {
     let (request_id, request_secret) = service.create_firewall_data().await;
 
@@ -145,7 +145,7 @@ pub async fn firewall(
         },
         num_interfaces: 1,
         ports: QFirewallPorts {
-            ports: vec![FIREWALL_PORT],
+            ports: vec![config.udp_port_2],
         },
         request_id,
         request_secret,
