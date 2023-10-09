@@ -1,6 +1,5 @@
-use std::path::Path;
-
 use serde::Deserialize;
+use std::{net::Ipv4Addr, path::Path};
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -8,6 +7,7 @@ pub struct Config {
     pub http_port: u16,
     pub udp_port_1: u16,
     pub udp_port_2: u16,
+    pub self_address: Ipv4Addr,
 }
 
 impl Default for Config {
@@ -16,6 +16,7 @@ impl Default for Config {
             http_port: 17499,
             udp_port_1: 17500,
             udp_port_2: 17501,
+            self_address: Ipv4Addr::new(127, 0, 0, 1),
         }
     }
 }

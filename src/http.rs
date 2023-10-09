@@ -1,5 +1,7 @@
 use std::{
+    future::Future,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    pin::Pin,
     sync::Arc,
 };
 
@@ -69,35 +71,77 @@ pub struct QQuery {
     pub qtyp: u32,
 }
 
+/// QoS type for public facing address information
+pub const QOS_TYPE_ADDRESS: u32 = 1;
+/// QoS type for checking latency
+pub const QOS_TYPE_LATENCY: u32 = 2;
+
+/// Number of probes the client should send when checking latency
+pub const LATENCY_PROBE_COUNT: u32 = 5;
+/// Size of the latency probes the client should send
+pub const LATENCY_PROBE_SIZE: u32 = 60;
+
 pub async fn qos(
     Query(query): Query<QQuery>,
     Extension(service): Extension<Arc<QService>>,
     Extension(config): Extension<Arc<Config>>,
 ) -> Xml<QResponse> {
-    if query.qtyp == 1 {
-        Xml(QResponse {
-            num_probes: 0,
-            qos_port: config.udp_port_1,
-            probe_size: 0,
-            qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
-            request_id: 1,
-            request_secret: 0,
-        })
-    } else {
-        let (request_id, request_secret) = service
-            .create_request_data(query.qtyp, query.port, query.version)
-            .await;
+    let qos_ip = u32::from_be_bytes(config.self_address.octets());
+    let qos_port = config.udp_port_1;
 
-        debug!("QResponse: {} {}", request_id, request_secret);
+    let response_fut: Pin<Box<dyn Future<Output = QResponse> + Send>> = match query.qtyp {
+        QOS_TYPE_ADDRESS => Box::pin(qos_address(qos_ip, qos_port)),
+        QOS_TYPE_LATENCY => Box::pin(qos_latency(service, query, qos_ip, qos_port)),
+        _ => Box::pin(qos_unknown(query)),
+    };
 
-        Xml(QResponse {
-            num_probes: 5,
-            qos_port: config.udp_port_1,
-            probe_size: 60,
-            qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
-            request_id,
-            request_secret,
-        })
+    let response = response_fut.await;
+    Xml(response)
+}
+
+async fn qos_address(qos_ip: u32, qos_port: u16) -> QResponse {
+    QResponse {
+        num_probes: 0,
+        qos_port,
+        probe_size: 0,
+        qos_ip,
+        request_id: 1,
+        request_secret: 0,
+    }
+}
+
+async fn qos_latency(
+    service: Arc<QService>,
+    query: QQuery,
+    qos_ip: u32,
+    qos_port: u16,
+) -> QResponse {
+    let (request_id, request_secret) = service
+        .create_request_data(query.qtyp, query.port, query.version)
+        .await;
+
+    debug!("QResponse: {} {}", request_id, request_secret);
+
+    QResponse {
+        num_probes: LATENCY_PROBE_COUNT,
+        qos_port,
+        probe_size: LATENCY_PROBE_SIZE,
+        qos_ip,
+        request_id,
+        request_secret,
+    }
+}
+
+async fn qos_unknown(query: QQuery) -> QResponse {
+    debug!("Unknown qos type query: {:?}", query);
+
+    QResponse {
+        num_probes: 0,
+        qos_port: 0,
+        probe_size: 0,
+        qos_ip: 0,
+        request_id: 0,
+        request_secret: 0,
     }
 }
 
@@ -137,11 +181,13 @@ pub async fn firewall(
     Extension(service): Extension<Arc<QService>>,
     Extension(config): Extension<Arc<Config>>,
 ) -> Xml<QFirewall> {
+    debug!("Firewall query: {:?}", query);
+
     let (request_id, request_secret) = service.create_firewall_data().await;
 
     Xml(QFirewall {
         ips: QFirewallIps {
-            ip: vec![u32::from_be_bytes([127, 0, 0, 1])],
+            ip: vec![u32::from_be_bytes(config.self_address.octets())],
         },
         num_interfaces: 1,
         ports: QFirewallPorts {
@@ -177,6 +223,8 @@ pub async fn firetype(
     Query(query): Query<QFireTypeQuery>,
     Extension(service): Extension<Arc<QService>>,
 ) -> Xml<QFireType> {
+    debug!("Firetype query: {:?}", query);
+
     let internal_ip = Ipv4Addr::from(query.internal_ip as u32);
     let internal = SocketAddrV4::new(internal_ip, query.internal_port);
     debug!("Fire type internal: {}", internal);
