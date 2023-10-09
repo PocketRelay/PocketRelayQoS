@@ -1,10 +1,12 @@
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error};
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::{constants::QOS_PORT, service::QService};
 
@@ -15,65 +17,116 @@ pub struct QosHeader {
     pub request_id: u32,
     pub request_secret: u32,
     pub probe_number: u32,
-    pub u2: u32,
 }
 
 impl QosHeader {
-    pub fn from_slice(header: &[u8]) -> QosHeader {
-        let u1 = u32_from_slice(&header[0..4]);
-        let request_id = u32_from_slice(&header[4..8]);
-        let request_secret = u32_from_slice(&header[8..12]);
-        let probe_number = u32_from_slice(&header[12..16]);
-        let u2 = u32_from_slice(&header[16..20]);
+    pub fn from_buffer(header: &mut BytesMut) -> QosHeader {
+        let u1 = header.get_u32();
+        let request_id = header.get_u32();
+        let request_secret = header.get_u32();
+        let probe_number = header.get_u32();
 
         QosHeader {
             u1,
             request_id,
             request_secret,
             probe_number,
-            u2,
         }
     }
 
-    pub fn write(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(&self.u1.to_be_bytes());
-        out.extend_from_slice(&self.request_id.to_be_bytes());
-        out.extend_from_slice(&self.request_secret.to_be_bytes());
-        out.extend_from_slice(&self.probe_number.to_be_bytes());
-        out.extend_from_slice(&self.u2.to_be_bytes());
+    pub fn write(&self, out: &mut BytesMut) {
+        out.put_u32(self.u1);
+        out.put_u32(self.request_id);
+        out.put_u32(self.request_secret);
+        out.put_u32(self.probe_number);
+    }
+}
+
+#[derive(Debug)]
+pub struct QosRequestV1 {
+    pub timestamp: u32,
+}
+
+impl QosRequestV1 {
+    pub fn from_buffer(buffer: &mut BytesMut) -> Self {
+        let timestamp = buffer.get_u32();
+        Self { timestamp }
+    }
+}
+
+#[derive(Debug)]
+pub struct QosRequestV2 {
+    pub probe_count: u32,
+    pub payload: Vec<u8>,
+}
+
+impl QosRequestV2 {
+    pub fn from_buffer(buffer: &mut BytesMut) -> Self {
+        let probe_count = buffer.get_u32();
+        let padding = buffer.split().to_vec();
+        Self {
+            probe_count,
+            payload: padding,
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct QosResponseV1 {
     pub header: QosHeader,
+    pub timestamp: u32,
     pub ip: Ipv4Addr,
     pub port: u16,
 }
 
 impl QosResponseV1 {
-    pub fn write(&self, out: &mut Vec<u8>) {
+    pub fn write(&self, out: &mut BytesMut) {
         self.header.write(out);
+        out.put_u32(self.timestamp);
         out.extend_from_slice(&self.ip.octets());
-        out.extend_from_slice(&self.port.to_be_bytes());
-        out.extend_from_slice(&[0, 0, 0, 0])
+        out.put_u16(self.port);
+        out.extend_from_slice(&[0, 0, 0, 0]);
     }
 }
 
 #[derive(Debug)]
 pub struct QosResponseV2 {
     pub header: QosHeader,
+    pub probe_count: u32,
     pub ubps: u32,
     pub port: u16,
     pub payload: Vec<u8>,
 }
 
 impl QosResponseV2 {
-    pub fn write(&self, out: &mut Vec<u8>) {
+    pub fn write(&self, out: &mut BytesMut) {
         self.header.write(out);
-        out.extend_from_slice(&self.ubps.to_be_bytes());
-        out.extend_from_slice(&self.port.to_be_bytes());
-        out.extend_from_slice(&self.payload)
+        out.put_u32_le(self.probe_count);
+        out.put_u32(self.ubps);
+        out.put_u16(self.port);
+        out.extend_from_slice(&self.payload);
+    }
+
+    // 9774859
+    // 9947171
+    // 9947890
+    // 10229015
+    // 10229390
+    // 10381765
+    // 10381984
+}
+
+#[test]
+fn test() {
+    let times: [(u32, u64); 4] = [
+        (10478125, 1696807213070),
+        (10478140, 1696807213087),
+        (10478156, 1696807213102),
+        (10478218, 1696807213167),
+    ];
+
+    for (a, b) in times {
+        println!("{}", b - a as u64);
     }
 }
 
@@ -93,15 +146,9 @@ pub async fn start_server(service: Arc<QService>) {
         let (length, addr) = socket.recv_from(&mut buffer).await.unwrap();
 
         // Copy the request bytes from the buffer
-        let buffer: Box<[u8]> = Box::from(&buffer[..length]);
+        let buffer: BytesMut = BytesMut::from(&buffer[..length]);
         tokio::spawn(handle(service.clone(), socket.clone(), addr, buffer));
     }
-}
-
-fn u32_from_slice(slice: &[u8]) -> u32 {
-    let mut a = [0u8; 4];
-    a.copy_from_slice(slice);
-    u32::from_be_bytes(a)
 }
 
 /// Handles a new udp request
@@ -114,9 +161,9 @@ async fn handle(
     service: Arc<QService>,
     socket: Arc<UdpSocket>,
     addr: SocketAddr,
-    buffer: Box<[u8]>,
+    mut buffer: BytesMut,
 ) {
-    if buffer.len() < 20 {
+    if buffer.len() < 16 {
         error!("Client didn't send a message long enough to be a header");
         return;
     }
@@ -129,15 +176,24 @@ async fn handle(
         }
     };
 
-    let mut header = QosHeader::from_slice(&buffer[0..20]);
+    let header = QosHeader::from_buffer(&mut buffer);
     debug!("RECV: {:?}", &header);
+    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    debug!("AT: {}", time.as_millis());
 
-    let mut out: Vec<u8> = Vec::new();
+    let mut out: BytesMut = BytesMut::new();
+    let public_ip = public_address().await.unwrap();
 
     if header.request_id == 1 && header.request_secret == 0 {
+        let request = QosRequestV1::from_buffer(&mut buffer);
+
+        debug!("RECV DATA: {:?}", &request);
+
         let response = QosResponseV1 {
             header,
-            ip: *addr.ip(),
+            timestamp: request.timestamp,
+            // ip: *addr.ip(),
+            ip: public_ip,
             port: addr.port(),
         };
 
@@ -145,24 +201,20 @@ async fn handle(
 
         response.write(&mut out);
     } else {
-        let request = service
-            .get_request_data(header.request_id, header.request_secret)
-            .await
-            .expect("Missing request data for request");
+        let request = QosRequestV2::from_buffer(&mut buffer);
 
-        if request.q_type != 2 {
-            error!("Unepxected qos request");
-            return;
-        }
+        debug!("RECV DATA: {:?}", &request);
 
-        header.u2 = header.u2.swap_bytes();
+        let mut payload = request.payload;
+        // Drop 6 bytes from the payload to fit the ubps and port1
+        payload.truncate(payload.len() - 6);
 
-        let payload = &buffer[20..(buffer.len() - 26)];
         let response = QosResponseV2 {
             header,
+            probe_count: request.probe_count,
             ubps: u32::from_be_bytes([0x00, 0x5b, 0x8d, 0x80]),
-            port: 38078,
-            payload: payload.to_vec(),
+            port: addr.port(),
+            payload,
         };
 
         debug!("SEND: {:?}", &response);
@@ -174,4 +226,82 @@ async fn handle(
         // TODO: Handle server unable to reach
         error!("Unable to return message to client {}: {}", addr, err);
     }
+}
+
+/// Caching structure for the public address value
+enum PublicAddrCache {
+    /// The value hasn't yet been computed
+    Unset,
+    /// The value has been computed
+    Set {
+        /// The public address value
+        value: Ipv4Addr,
+        /// The system time the cache expires at
+        expires: SystemTime,
+    },
+}
+
+/// Cache value for storing the public address
+static PUBLIC_ADDR_CACHE: RwLock<PublicAddrCache> = RwLock::const_new(PublicAddrCache::Unset);
+
+/// Cache public address for 30 minutes
+const ADDR_CACHE_TIME: Duration = Duration::from_secs(60 * 30);
+
+/// Retrieves the public address of the server either using the cached
+/// value if its not expired or fetching the new value from the one of
+/// two possible APIs
+async fn public_address() -> Option<Ipv4Addr> {
+    {
+        let cached = &*PUBLIC_ADDR_CACHE.read().await;
+        if let PublicAddrCache::Set { value, expires } = cached {
+            let time = SystemTime::now();
+            if time.lt(expires) {
+                return Some(*value);
+            }
+        }
+    }
+
+    // Hold the write lock to prevent others from attempting to update aswell
+    let cached = &mut *PUBLIC_ADDR_CACHE.write().await;
+
+    // API addresses for IP lookup
+    let addresses = ["https://api.ipify.org/", "https://ipv4.icanhazip.com/"];
+    let mut value: Option<Ipv4Addr> = None;
+
+    // Try all addresses using the first valid value
+    for address in addresses {
+        let response = match reqwest::get(address).await {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let ip = match response.text().await {
+            Ok(value) => value.trim().replace('\n', ""),
+            Err(_) => continue,
+        };
+
+        if let Ok(parsed) = ip.parse() {
+            value = Some(parsed);
+            break;
+        }
+    }
+
+    // If we couldn't connect to any IP services its likely
+    // we don't have internet lets try using our local address
+    if value.is_none() {
+        if let Ok(IpAddr::V4(addr)) = local_ip_address::local_ip() {
+            value = Some(addr)
+        }
+    }
+
+    let value = value?;
+
+    // Update cached value with the new address
+
+    *cached = PublicAddrCache::Set {
+        value,
+        expires: SystemTime::now() + ADDR_CACHE_TIME,
+    };
+
+    Some(value)
 }
