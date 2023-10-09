@@ -93,7 +93,7 @@ pub async fn qos(
         Xml(QResponse {
             num_probes: 5,
             qos_port: config.udp_port_1,
-            probe_size: 1200,
+            probe_size: 60,
             qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
             request_id,
             request_secret,
