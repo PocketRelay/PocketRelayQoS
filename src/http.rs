@@ -92,7 +92,7 @@ pub async fn qos(
         debug!("QResponse: {} {}", request_id, request_secret);
 
         Xml(QResponse {
-            num_probes: 10,
+            num_probes: 5,
             qos_port: QOS_PORT,
             probe_size: 1200,
             qos_ip: u32::from_be_bytes([127, 0, 0, 1]),
