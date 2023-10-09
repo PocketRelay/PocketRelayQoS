@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -8,7 +8,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use log::{debug, error};
 use tokio::{net::UdpSocket, sync::RwLock};
 
-use crate::{constants::QOS_PORT, service::QService};
+use crate::{config::Config, service::QService};
 
 #[derive(Debug, Clone)]
 pub struct QosHeader {
@@ -106,40 +106,18 @@ impl QosResponseV2 {
         out.put_u16(self.port);
         out.extend_from_slice(&self.payload);
     }
-
-    // 9774859
-    // 9947171
-    // 9947890
-    // 10229015
-    // 10229390
-    // 10381765
-    // 10381984
 }
 
-#[test]
-fn test() {
-    let times: [(u32, u64); 4] = [
-        (10478125, 1696807213070),
-        (10478140, 1696807213087),
-        (10478156, 1696807213102),
-        (10478218, 1696807213167),
-    ];
-
-    for (a, b) in times {
-        println!("{}", b - a as u64);
-    }
-}
-
-pub async fn start_server(service: Arc<QService>) {
+pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     // Socket for handling connections
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, QOS_PORT))
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, config.udp_port_1))
         .await
         .unwrap();
 
     let socket = Arc::new(socket);
 
     // Buffer for reciving messages
-    let mut buffer = [0u8; 5048];
+    let mut buffer = [0u8; 60];
 
     loop {
         // Read bytes from the socket
@@ -158,13 +136,16 @@ pub async fn start_server(service: Arc<QService>) {
 /// * addr - The address of the message sender
 /// * buffer - The received message buffer
 async fn handle(
-    service: Arc<QService>,
+    _service: Arc<QService>,
     socket: Arc<UdpSocket>,
     addr: SocketAddr,
     mut buffer: BytesMut,
 ) {
     if buffer.len() < 16 {
-        error!("Client didn't send a message long enough to be a header");
+        error!(
+            "Client didn't send a message long enough to be a header: {:?}",
+            buffer.as_ref()
+        );
         return;
     }
 

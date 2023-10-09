@@ -15,7 +15,7 @@ pub struct QService {
 static NEXT_ID: AtomicU32 = AtomicU32::new(2);
 
 impl QService {
-    pub async fn get_request_data(
+    pub async fn _get_request_data(
         &self,
         id: RequestId,
         secret: RequestSecret,

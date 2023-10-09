@@ -3,7 +3,6 @@ use service::QService;
 use std::sync::Arc;
 
 mod config;
-mod constants;
 mod firewall;
 mod http;
 mod logging;
@@ -19,6 +18,6 @@ async fn main() {
     let service = Arc::new(QService::default());
 
     tokio::spawn(http::start_server(service.clone(), config.clone()));
-    tokio::spawn(firewall::start_server(service.clone(), config));
-    udp::start_server(service).await;
+    tokio::spawn(firewall::start_server(service.clone(), config.clone()));
+    udp::start_server(service, config).await;
 }
