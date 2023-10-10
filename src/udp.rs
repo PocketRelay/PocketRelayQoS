@@ -158,9 +158,7 @@ async fn handle(
     };
 
     let header = QosHeader::from_buffer(&mut buffer);
-    debug!("RECV: {:?}", &header);
     let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    debug!("AT: {}", time.as_millis());
 
     let mut out: BytesMut = BytesMut::new();
 
@@ -174,38 +172,46 @@ async fn handle(
     if header.request_id == 1 && header.request_secret == 0 {
         let request = QosRequestV1::from_buffer(&mut buffer);
 
-        debug!("RECV DATA: {:?}", &request);
-
         let response = QosResponseV1 {
-            header,
+            header: header.clone(),
             timestamp: request.timestamp,
             // ip: *addr.ip(),
             ip: public_ip,
             port: addr.port(),
         };
 
-        debug!("SEND: {:?}", &response);
+        debug!(
+            "RECV: {:?} AT: {:?}  DATA: {:?} RESP: {:?}",
+            &header,
+            time.as_millis(),
+            &request,
+            &response
+        );
 
         response.write(&mut out);
     } else {
         let request = QosRequestV2::from_buffer(&mut buffer);
 
-        debug!("RECV DATA: {:?}", &request);
+        let mut payload = request.payload.clone();
 
-        let mut payload = request.payload;
         // Drop 6 bytes from the payload to fit the ubps and port1
         payload.truncate(payload.len() - 6);
 
         let response = QosResponseV2 {
-            header,
+            header: header.clone(),
             probe_count: request.probe_count,
             ubps: u32::from_be_bytes([0x00, 0x5b, 0x8d, 0x80]),
             port: addr.port(),
             payload,
         };
 
-        debug!("SEND: {:?}", &response);
-
+        debug!(
+            "RECV: {:?} AT: {:?}  DATA: {:?} RESP: {:?}",
+            &header,
+            time.as_millis(),
+            &request,
+            &response
+        );
         response.write(&mut out);
     }
 
