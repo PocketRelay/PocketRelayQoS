@@ -32,7 +32,7 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
             TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::new().include_headers(true)),
         );
 
-    info!("Starting server on {}", addr);
+    info!("Starting HTTP server on {}", addr);
 
     if let Err(err) = Server::bind(&addr)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>())

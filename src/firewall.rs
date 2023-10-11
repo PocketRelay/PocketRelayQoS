@@ -1,6 +1,6 @@
 use std::{net::Ipv4Addr, sync::Arc};
 
-use log::debug;
+use log::{debug, info};
 use tokio::net::UdpSocket;
 
 use crate::{config::Config, service::QService};
@@ -10,6 +10,7 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, config.udp_port_2))
         .await
         .unwrap();
+    info!("Starting FireWall server on 0.0.0.0:{}", config.udp_port_2);
 
     // Buffer for the packet header
     let mut buffer = [0u8; 8];

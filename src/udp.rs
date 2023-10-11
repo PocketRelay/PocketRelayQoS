@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::{Buf, BufMut, BytesMut};
-use log::{debug, error};
+use log::{debug, error, info};
 use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::{config::Config, service::QService};
@@ -113,6 +113,8 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, config.udp_port_1))
         .await
         .unwrap();
+
+    info!("Starting QoS server on 0.0.0.0:{}", config.udp_port_1);
 
     let socket = Arc::new(socket);
 
