@@ -13,7 +13,7 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     info!("Starting FireWall server on 0.0.0.0:{}", config.udp_port_2);
 
     // Buffer for the packet header
-    let mut buffer = [0u8; 8];
+    let mut buffer = [0u8; 65536 /* UDP allocated buffer size */];
 
     loop {
         // Read bytes from the socket
