@@ -119,7 +119,7 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     let socket = Arc::new(socket);
 
     // Buffer for reciving messages
-    let mut buffer = [0u8; 60];
+    let mut buffer = [0u8; 65536 /* UDP allocated buffer size */];
 
     loop {
         // Read bytes from the socket
@@ -181,7 +181,6 @@ async fn handle(
             ip: public_ip,
             port: addr.port(),
         };
-
         debug!(
             "RECV: {:?} AT: {:?}  DATA: {:?} RESP: {:?}",
             &header,
