@@ -62,16 +62,16 @@ impl QosRequestV1 {
 #[derive(Debug)]
 pub struct QosRequestV2 {
     pub probe_count: u32,
-    pub payload: Vec<u8>,
+    pub payload: BytesMut,
 }
 
 impl QosRequestV2 {
     pub fn from_buffer(buffer: &mut BytesMut) -> Self {
         let probe_count = buffer.get_u32();
-        let padding = buffer.split().to_vec();
+        let payload = buffer.split();
         Self {
             probe_count,
-            payload: padding,
+            payload,
         }
     }
 }
@@ -100,7 +100,7 @@ pub struct QosResponseV2 {
     pub probe_count: u32,
     pub ubps: u32,
     pub port: u16,
-    pub payload: Vec<u8>,
+    pub payload: BytesMut,
 }
 
 impl QosResponseV2 {
@@ -295,4 +295,9 @@ async fn public_address() -> Option<Ipv4Addr> {
     };
 
     Some(value)
+}
+
+#[test]
+fn bytes() {
+    println!("{:#x?}", 96000000u32.to_be_bytes());
 }
