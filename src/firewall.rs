@@ -1,6 +1,10 @@
-use std::{net::Ipv4Addr, sync::Arc};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
-use log::{debug, info};
+use bytes::{Buf, BytesMut};
+use log::{debug, error, info};
 use tokio::net::UdpSocket;
 
 use crate::{config::Config, service::QService};
@@ -11,6 +15,7 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
         .await
         .unwrap();
     info!("Starting FireWall server on 0.0.0.0:{}", config.udp_port_2);
+    let socket = Arc::new(socket);
 
     // Buffer for the packet header
     let mut buffer = [0u8; 65536 /* UDP allocated buffer size */];
@@ -18,32 +23,62 @@ pub async fn start_server(service: Arc<QService>, config: Arc<Config>) {
     loop {
         // Read bytes from the socket
         let (length, addr) = socket.recv_from(&mut buffer).await.unwrap();
-        // Ignore messages that are too short
-        if length < 8 {
-            continue;
-        }
 
-        let header = &buffer[0..8];
-
-        let request_id = u32_from_slice(&header[0..4]);
-        let request_secret = u32_from_slice(&header[4..8]);
-
-        let rx = service
-            .get_firewall_tx(request_id, request_secret)
-            .await
-            .expect("Missing request data for request");
-
-        debug!(
-            "Firewall Query: ID: {} SEC: {}  ADDR: {}",
-            request_id, request_secret, addr
-        );
-
-        _ = rx.send(addr);
+        // Copy the request bytes from the buffer
+        let buffer: BytesMut = BytesMut::from(&buffer[..length]);
+        tokio::spawn(handle(service.clone(), socket.clone(), addr, buffer));
     }
 }
 
-fn u32_from_slice(slice: &[u8]) -> u32 {
-    let mut a = [0u8; 4];
-    a.copy_from_slice(slice);
-    u32::from_be_bytes(a)
+#[derive(Debug)]
+pub struct FirewallRequest {
+    pub request_id: u32,
+    pub request_secret: u32,
+}
+
+impl FirewallRequest {
+    pub fn from_buffer(buffer: &mut BytesMut) -> Self {
+        let request_id = buffer.get_u32();
+        let request_secret = buffer.get_u32();
+
+        if !buffer.is_empty() {
+            debug!(
+                "Firewall message still had more bytes: {:?}",
+                buffer.as_ref()
+            );
+        }
+
+        Self {
+            request_id,
+            request_secret,
+        }
+    }
+}
+
+async fn handle(
+    service: Arc<QService>,
+    // We don't use the socket for responding
+    _socket: Arc<UdpSocket>,
+    addr: SocketAddr,
+    mut buffer: BytesMut,
+) {
+    // Ignore messages that are too short
+    if buffer.len() < 8 {
+        error!(
+            "Client didn't send a firewall message long enough to be a message: {:?}",
+            buffer.as_ref()
+        );
+        return;
+    }
+
+    let message = FirewallRequest::from_buffer(&mut buffer);
+
+    let rx = service
+        .get_firewall_tx(message.request_id, message.request_secret)
+        .await
+        .expect("Missing request data for request");
+
+    debug!("Firewall Query: MSG: {:?}  ADDR: {}", message, addr);
+
+    _ = rx.send(addr);
 }

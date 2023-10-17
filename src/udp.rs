@@ -50,6 +50,11 @@ pub struct QosRequestV1 {
 impl QosRequestV1 {
     pub fn from_buffer(buffer: &mut BytesMut) -> Self {
         let timestamp = buffer.get_u32();
+
+        if !buffer.is_empty() {
+            debug!("QoS v1 message still had more bytes: {:?}", buffer.as_ref());
+        }
+
         Self { timestamp }
     }
 }
