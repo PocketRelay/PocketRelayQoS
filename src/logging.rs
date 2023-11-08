@@ -41,7 +41,7 @@ pub fn setup() {
         .build(
             Root::builder()
                 .appenders(APPENDERS)
-                .build(LevelFilter::Warn),
+                .build(LevelFilter::Debug),
         )
         .expect("Failed to create logging config");
 

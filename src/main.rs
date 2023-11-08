@@ -11,6 +11,8 @@ mod udp;
 
 #[tokio::main]
 async fn main() {
+    std::env::set_var("RUST_LOG", "trace");
+
     logging::setup();
 
     let config = Arc::new(load_config().await);

@@ -170,7 +170,8 @@ async fn handle(
     let mut out: BytesMut = BytesMut::new();
 
     let mut public_ip = *addr.ip();
-    if public_ip.is_loopback() || public_ip.is_private() {
+    // Only lookup public address of server if in debug mode
+    if cfg!(debug_assertions) && (public_ip.is_loopback() || public_ip.is_private()) {
         if let Some(ip) = public_address().await {
             public_ip = ip;
         }
@@ -299,5 +300,6 @@ async fn public_address() -> Option<Ipv4Addr> {
 
 #[test]
 fn bytes() {
-    println!("{:#x?}", 96000000u32.to_be_bytes());
+    println!("{}", Ipv4Addr::from(1987012967u32.to_be_bytes()));
+    println!("{}", -2146697216i32 as u32);
 }
