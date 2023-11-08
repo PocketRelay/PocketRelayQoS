@@ -297,9 +297,3 @@ async fn public_address() -> Option<Ipv4Addr> {
 
     Some(value)
 }
-
-#[test]
-fn bytes() {
-    println!("{}", Ipv4Addr::from(1987012967u32.to_be_bytes()));
-    println!("{}", -2146697216i32 as u32);
-}
